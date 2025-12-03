@@ -1,65 +1,143 @@
-import Image from "next/image";
+"use client"
 
-export default function Home() {
+import { useEffect, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { useDashboardStore } from "@/lib/store"
+import { DashboardHeader } from "@/components/header"
+import { AddWidgetDialog } from "@/components/add-widget-dialog"
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd"
+import { WidgetShell } from "@/components/widgets/widget-shell"
+import { CardWidget } from "@/components/widgets/card-widget"
+import { TableWidget } from "@/components/widgets/table-widget"
+import { LineChartWidget } from "@/components/widgets/line-chart-widget"
+
+import { cn } from "@/lib/utils"
+
+function useThemeToggle() {
+  const [theme, setTheme] = useState<string>(() => {
+    if (typeof window === "undefined") return "dark"
+    return localStorage.getItem("finboard-theme") || "dark"
+  })
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === "dark") root.classList.add("dark")
+    else root.classList.remove("dark")
+    localStorage.setItem("finboard-theme", theme)
+  }, [theme])
+  return { theme, setTheme }
+}
+
+export default function Page() {
+  const { theme, setTheme } = useThemeToggle()
+  const widgets = useDashboardStore((s) => s.widgets || [])
+  const reorder = useDashboardStore((s) => s.reorder)
+  const removeWidget = useDashboardStore((s) => s.removeWidget)
+  const [isAddOpen, setAddOpen] = useState(false)
+
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return
+    reorder(result.source.index, result.destination.index)
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+    <main className="min-h-screen bg-background">
+      <DashboardHeader
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+        onAddWidget={() => setAddOpen(true)}
+        onExport={() => {
+          const data = useDashboardStore.getState().exportConfig()
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement("a")
+          a.href = url
+          a.download = "finboard-config.json"
+          a.click()
+          URL.revokeObjectURL(url)
+        }}
+        onImport={(file) => {
+          const reader = new FileReader()
+          reader.onload = () => {
+            try {
+              const json = JSON.parse(reader.result as string)
+              useDashboardStore.getState().importConfig(json)
+            } catch {
+              alert("Invalid config file")
+            }
+          }
+          reader.readAsText(file)
+        }}
+      />
+
+      <section className="container mx-auto px-4 py-8">
+        {widgets.length === 0 ? (
+          <div className="grid place-items-center min-h-[70vh]">
+            <div className="finboard-card max-w-2xl w-full p-8 text-center">
+              <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                <div className="size-8 rounded bg-primary/20" aria-hidden />
+              </div>
+              <h2 className="text-2xl font-bold finboard-text-balance mb-4">Build Your Finance Dashboard</h2>
+              <p className="text-muted-foreground finboard-text-balance mb-8 max-w-lg mx-auto">
+                Connect to financial APIs like Alpha Vantage and Finnhub. Create customizable widgets with cards,
+                tables, and charts. Use our JSON explorer to map data fields visually.
+              </p>
+              <div className="flex flex-wrap gap-3 justify-center">
+                <Button size="lg" onClick={() => setAddOpen(true)} className="finboard-focus">
+                  Create Your First Widget
+                </Button>
+                <Button size="lg" variant="outline" asChild className="finboard-focus bg-transparent">
+                  <a href="/docs">View Documentation</a>
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="dashboard" direction="horizontal">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps} className="finboard-grid">
+                  {widgets.map((w, idx) => (
+                    <Draggable key={w.id} draggableId={w.id} index={idx}>
+                      {(dragProvided, snapshot) => (
+                        <div
+                          ref={dragProvided.innerRef}
+                          {...dragProvided.draggableProps}
+                          {...dragProvided.dragHandleProps}
+                          className={cn(
+                            "transition-all duration-200",
+                            snapshot.isDragging ? "opacity-80 scale-105 rotate-2" : "opacity-100",
+                          )}
+                        >
+                          <WidgetShell widget={w} onRemove={() => removeWidget(w.id)}>
+                            {w.type === "card" && <CardWidget widget={w} />}
+                            {w.type === "table" && <TableWidget widget={w} />}
+                            {w.type === "line" && <LineChartWidget widget={w} />}
+                          </WidgetShell>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                  <div
+                    className="finboard-card border-dashed border-2 border-primary/30 hover:border-primary/50 bg-primary/5 hover:bg-primary/10 transition-all duration-200 group cursor-pointer"
+                    onClick={() => setAddOpen(true)}
+                  >
+                    <div className="p-8 flex flex-col items-center justify-center text-center min-h-[200px]">
+                      <div className="size-12 rounded-full bg-primary/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                        <span className="text-2xl text-primary">+</span>
+                      </div>
+                      <h3 className="font-semibold text-primary mb-2">Add Widget</h3>
+                      <p className="text-sm text-muted-foreground">Create a new data visualization</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        )}
+      </section>
+
+      <AddWidgetDialog open={isAddOpen} onOpenChange={setAddOpen} />
+    </main>
+  )
 }
