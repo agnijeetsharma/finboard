@@ -1,14 +1,86 @@
+"use client"
 
-import { WidgetShell } from "./widget-shell"
+import useSWR from "swr"
+import type { WidgetLine } from "@/lib/types"
+import { toTimeSeries } from "@/lib/json-utils"
+import { Loader2 } from "lucide-react"
 
-export function LineChartWidget() {
-  return (
-    <WidgetShell>
-      <h3 className="text-sm font-medium mb-2">Monthly Growth</h3>
 
-      <div className="h-32 w-full bg-gray-100 rounded flex items-center justify-center text-gray-500 text-sm">
-        Line Chart Preview
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend,
+  Filler,
+} from "chart.js"
+import { Line } from "react-chartjs-2"
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
+
+export function LineChartWidget({ widget }: { widget: WidgetLine }) {
+  const { data, error, isLoading } = useSWR(
+    ["widget", widget.id, widget.provider, widget.endpoint, widget.params],
+    () =>
+      fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: widget.provider,
+          endpoint: widget.endpoint,
+          params: widget.params,
+        }),
+      }).then((r) => r.json()),
+    { refreshInterval: widget.refreshMs, dedupingInterval: 5_000 },
+  )
+
+  if (isLoading)
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Loading
       </div>
-    </WidgetShell>
+    )
+  if (error) return <div className="text-sm text-destructive">Error loading</div>
+  if (!data) return <div className="text-sm text-muted-foreground">No data</div>
+
+  const series = toTimeSeries(data, widget.mapping.x, widget.mapping.y).slice(0, 200).reverse()
+  const labels = series.map((d) => String(d.time))
+  const values = series.map((d) => Number(d.value ?? 0))
+
+  const chartData = {
+    labels,
+    datasets: [
+      {
+        label: widget.name || "Series",
+        data: values,
+        borderColor: "#0284c7", // sky-600
+        backgroundColor: "rgba(2,132,199,0.15)",
+        pointRadius: 0,
+        tension: 0.35,
+        fill: true,
+        borderWidth: 2,
+      },
+    ],
+  }
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { intersect: false, mode: "index" as const },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+      y: { grid: { color: "rgba(124,63,0,0.08)" } }, 
+    },
+  }
+
+  return (
+    <div className="h-56">
+      <Line data={chartData} options={options} />
+    </div>
   )
 }
