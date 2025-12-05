@@ -1,23 +1,30 @@
-"use client"
+"use client";
 
-import type { ReactNode } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import Link from "next/link"
-import { Eye, Trash2 } from "lucide-react"
-import type { Widget } from "@/lib/types"
+import type { ReactNode } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
+import { Eye, Trash2 } from "lucide-react";
+import type { Widget } from "@/lib/types";
 
 const providerLabel: Record<string, string> = {
   alphaVantage: "Alpha Vantage",
   finnhub: "Finnhub",
-}
+};
 
 export function WidgetShell({
   widget,
   children,
   onRemove,
-}: { widget: Widget; children: ReactNode; onRemove: () => void }) {
+}: {
+  widget: Widget;
+  children: ReactNode;
+  onRemove: () => void;
+}) {
+  const refreshMs = (widget as any).refreshMs ?? 60000; 
+  const refreshSeconds = Math.round(refreshMs / 1000);
+
   return (
     <Card className="finboard-card group">
       <CardHeader className="flex-row items-start justify-between gap-3 pb-3">
@@ -32,7 +39,9 @@ export function WidgetShell({
             >
               {providerLabel[widget.provider] ?? widget.provider}
             </Badge>
-            <span className="text-xs text-muted-foreground">{widget.refreshInterval}s refresh</span>
+            <span className="text-xs text-muted-foreground">
+              {refreshSeconds}s refresh
+            </span>
           </div>
         </div>
 
@@ -58,5 +67,5 @@ export function WidgetShell({
       </CardHeader>
       <CardContent className="pt-0 pb-4">{children}</CardContent>
     </Card>
-  )
+  );
 }

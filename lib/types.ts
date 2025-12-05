@@ -11,7 +11,7 @@ export type WidgetBase = {
   provider: ProviderId
   endpoint: string
   params: Record<string, any>
-  refreshMs: number
+  refreshMs ?: number
 }
 
 export type WidgetCard = WidgetBase & {

@@ -19,30 +19,29 @@ type State = {
 export const useDashboardStore = create<State>()(
   persist(
     (set, get) => ({
-    
       hasSeenTour: false,
       setHasSeenTour: (v) => set({ hasSeenTour: v }),
 
       widgets: [],
 
       addWidget: (w) =>
-        set((state) => ({
-          widgets: [
-            ...state.widgets,
-            {
-              id: Date.now().toString(), 
-             
-              title: w.title || w.name || "Untitled Widget",
-              name: w.name || w.title || "Untitled Widget",
-              type: w.type,
-              provider: w.provider,
-              endpoint: w.endpoint,
-              params: w.params ?? {},
-              mapping: w.mapping ?? {},
-              refreshMs: w.refreshMs ?? 60_000,
-            },
-          ],
-        })),
+        set((state) => {
+          const id = Date.now().toString();
+
+          const newWidget: Widget = {
+            ...(w as any),
+            id,
+
+            title: (w as any).title || (w as any).name || "Untitled Widget",
+            name: (w as any).name || (w as any).title || "Untitled Widget",
+
+            refreshMs: (w as any).refreshMs ?? 60_000,
+          };
+
+          return {
+            widgets: [...state.widgets, newWidget],
+          };
+        }),
 
       removeWidget: (id) =>
         set((state) => ({
@@ -69,6 +68,7 @@ export const useDashboardStore = create<State>()(
       },
 
       exportConfig: () => ({
+         version: 1,  
         widgets: get().widgets,
       }),
 
