@@ -8,31 +8,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-
-
 import {
-  Chart as ChartJS,
-  LineElement,
-  PointElement,
-  LinearScale,
-  TimeScale,
-  Tooltip as ChartTooltip,
-  Legend,
-  Filler,
-  CategoryScale,
-} from "chart.js";
-import { Line } from "react-chartjs-2";
-
-ChartJS.register(
-  LineElement,
-  PointElement,
-  LinearScale,
-  TimeScale,
-  CategoryScale,
-  ChartTooltip,
-  Legend,
-  Filler
-);
+  WidgetKpis,
+  type NewsRow,
+} from "@/components/dashboard/WidgetKpis";
+import {
+  WidgetChart,
+  type XYPoint,
+} from "@/components/dashboard/WidgetChart";
+import { WidgetTable } from "@/components/dashboard/WidgetTable";
 
 const fetcher = (url: string, body: any) =>
   fetch(url, {
@@ -45,12 +29,44 @@ const fetcher = (url: string, body: any) =>
     return data;
   });
 
+
+function mapFinnhubNewsToTable(raw: any): NewsRow[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.map((item) => ({
+    time: item.datetime
+      ? new Date(item.datetime * 1000).toLocaleString()
+      : "",
+    headline: item.headline ?? "",
+    source: item.source ?? "",
+    summary: item.summary ?? "",
+    url: item.url ?? "",
+  }));
+}
+
+function newsCountPerDayAdapter(raw: any): XYPoint[] {
+  if (!Array.isArray(raw)) return [];
+
+  const dayMap: Record<string, number> = {};
+
+  for (const item of raw) {
+    if (!item.datetime) continue;
+    const day = new Date(item.datetime * 1000).toISOString().slice(0, 10); 
+    dayMap[day] = (dayMap[day] || 0) + 1;
+  }
+
+  return Object.entries(dayMap)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([day, count]) => ({ x: day, y: count }));
+}
+
 function extractTimeSeries(obj: any) {
   if (!obj || typeof obj !== "object") return null;
 
+ 
   if (Array.isArray(obj.t) && Array.isArray(obj.c)) {
     return {
-      type: "finnhub",
+      type: "finnhub" as const,
       rows: obj.t.map((ts: number, i: number) => ({
         date: new Date(ts * 1000).toISOString().slice(0, 10),
         open: Number(obj.o?.[i]),
@@ -65,7 +81,7 @@ function extractTimeSeries(obj: any) {
   const key = Object.keys(obj).find((k) =>
     k.toLowerCase().includes("time series")
   );
-  return key ? { type: "av", series: obj[key] } : null;
+  return key ? { type: "av" as const, series: obj[key] } : null;
 }
 
 function mapAVSeriesToArray(series: any) {
@@ -95,8 +111,14 @@ function mapAVSeriesToArray(series: any) {
   return rows.sort((a, b) => (a.date > b.date ? 1 : -1));
 }
 
+
 export default function WidgetDetail({ id }: { id: string }) {
   const widget = useDashboardStore((s: any) => s.getWidget?.(id));
+
+
+  const isFinnhubNews =
+    widget?.provider === "finnhub" &&
+    (widget.endpoint === "/news"||widget.endpoint === "news" || widget.endpoint === "/company-news");
 
   const body = widget
     ? {
@@ -105,6 +127,7 @@ export default function WidgetDetail({ id }: { id: string }) {
         params: widget.params,
       }
     : null;
+
   const { data, error, isLoading, mutate } = useSWR(
     body ? ["/api/proxy", body] : null,
     ([u, b]) => fetcher(u, b),
@@ -114,7 +137,28 @@ export default function WidgetDetail({ id }: { id: string }) {
     }
   );
 
-  const { rows, latest, prev, changeAbs, changePct } = useMemo(() => {
+  const {
+    rows,
+    latest,
+    prev,
+    changeAbs,
+    changePct,
+    newsRows,
+    newsPoints,
+  } = useMemo(() => {
+    if (isFinnhubNews) {
+      const tableRows = mapFinnhubNewsToTable(data);
+      const points = newsCountPerDayAdapter(data);
+      return {
+        rows: [] as any[],
+        latest: null,
+        prev: null,
+        changeAbs: null,
+        changePct: null,
+        newsRows: tableRows,
+        newsPoints: points,
+      };
+    }
     const ex = extractTimeSeries(data);
     let arr: any[] = [];
     if (ex?.type === "finnhub") {
@@ -140,56 +184,20 @@ export default function WidgetDetail({ id }: { id: string }) {
       prev: secondLast,
       changeAbs: chAbs,
       changePct: chPct,
+      newsRows: [] as NewsRow[],
+      newsPoints: [] as XYPoint[],
     };
-  }, [data]);
+  }, [data, isFinnhubNews]);
 
   if (!widget) {
     return (
       <main className="p-6">
         <p className="text-sm text-red-500">Widget not found.</p>
         <Link href="/" className="text-sky-600 hover:underline text-sm">
-          Back to dashboard
-        </Link>
+          Back to dashboard</Link>
       </main>
     );
   }
-
-  const chartData =
-    rows && rows.length
-      ? {
-          labels: rows.map((r) => r.date),
-          datasets: [
-            {
-              label: "Close",
-              data: rows.map((r) => r.close),
-              borderColor: "rgb(2, 132, 199)",
-              backgroundColor: "rgba(2, 132, 199, 0.15)",
-              pointRadius: 0,
-              fill: true,
-              tension: 0.25,
-            },
-          ],
-        }
-      : undefined;
-
-  const chartOptions: any = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: { mode: "index", intersect: false },
-    },
-    scales: {
-      x: {
-        grid: { color: "rgba(120, 53, 15, 0.08)" },
-        ticks: { maxTicksLimit: 6 },
-      },
-      y: {
-        grid: { color: "rgba(120, 53, 15, 0.08)" },
-        ticks: { callback: (v: number) => `${v}` },
-      },
-    },
-  };
 
   return (
     <main className="p-6 space-y-4">
@@ -235,56 +243,13 @@ export default function WidgetDetail({ id }: { id: string }) {
 
       {!isLoading && !error ? (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Card className="bg-card">
-              <CardHeader className="py-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Latest Close
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="text-xl font-semibold">
-                  {latest?.close ?? "—"}
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="bg-card">
-              <CardHeader className="py-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Change
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div
-                  className={`text-xl font-semibold ${
-                    (changeAbs ?? 0) >= 0 ? "text-sky-600" : "text-rose-600"
-                  }`}
-                >
-                  {changeAbs != null
-                    ? (changeAbs >= 0 ? "+" : "") + changeAbs.toFixed(2)
-                    : "—"}
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="bg-card">
-              <CardHeader className="py-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Change %
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div
-                  className={`text-xl font-semibold ${
-                    (changePct ?? 0) >= 0 ? "text-sky-600" : "text-rose-600"
-                  }`}
-                >
-                  {changePct != null
-                    ? (changePct >= 0 ? "+" : "") + changePct.toFixed(2) + "%"
-                    : "—"}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <WidgetKpis
+            isNews={isFinnhubNews}
+            latest={latest}
+            changeAbs={changeAbs}
+            changePct={changePct}
+            newsRows={newsRows}
+          />
 
           <Tabs defaultValue="chart" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
@@ -294,61 +259,19 @@ export default function WidgetDetail({ id }: { id: string }) {
             </TabsList>
 
             <TabsContent value="chart">
-              <Card className="shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-sm">Price (Close)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[320px]">
-                    {chartData ? (
-                      <Line data={chartData} options={chartOptions} />
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        No chartable data.
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+              <WidgetChart
+                isNews={isFinnhubNews}
+                rows={rows}
+                newsPoints={newsPoints}
+              />
             </TabsContent>
 
             <TabsContent value="table">
-              <Card className="bg-card shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-sm">OHLCV</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="max-h-[60vh] overflow-auto">
-                    <table className="w-full text-sm table-fixed">
-                      <thead className="sticky top-0 bg-background">
-                        <tr className="text-left">
-                          <th className="px-2 py-2 font-medium">Date</th>
-                          <th className="px-2 py-2 font-medium">Open</th>
-                          <th className="px-2 py-2 font-medium">High</th>
-                          <th className="px-2 py-2 font-medium">Low</th>
-                          <th className="px-2 py-2 font-medium">Close</th>
-                          <th className="px-2 py-2 font-medium">Volume</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(rows || []).slice(-200).map((r, i) => (
-                          <tr
-                            key={r.date}
-                            className={`border-t ${i % 2 ? "bg-muted/30" : ""}`}
-                          >
-                            <td className="px-2 py-2">{r.date}</td>
-                            <td className="px-2 py-2">{r.open ?? "—"}</td>
-                            <td className="px-2 py-2">{r.high ?? "—"}</td>
-                            <td className="px-2 py-2">{r.low ?? "—"}</td>
-                            <td className="px-2 py-2">{r.close ?? "—"}</td>
-                            <td className="px-2 py-2">{r.volume ?? "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+              <WidgetTable
+                isNews={isFinnhubNews}
+                rows={rows}
+                newsRows={newsRows}
+              />
             </TabsContent>
 
             <TabsContent value="raw">
