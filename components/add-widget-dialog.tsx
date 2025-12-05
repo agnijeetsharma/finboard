@@ -13,16 +13,66 @@ import { useDashboardStore } from "@/lib/store"
 import type { ProviderId, WidgetType, FieldFormat } from "@/lib/types"
 
 type Props = { open: boolean; onOpenChange: (v: boolean) => void }
+function getDefaultEndpoint(provider: ProviderId, type: WidgetType): string {
+  if (provider === "alphaVantage") {
+    if (type === "line" || type === "table") return "TIME_SERIES_DAILY"
+    return "TIME_SERIES_DAILY"
+  }
+  if (type === "line" || type === "table") return "stock/candle"
+  return "news"
+}
+
+function buildParams(provider: ProviderId, endpoint: string, symbol: string) {
+  const cleanEndpoint = endpoint.replace(/^\/+/, "") 
+
+  if (provider === "alphaVantage") {
+    return symbol ? { symbol } : {}
+  }
+
+
+  if (provider === "finnhub") {
+    if (cleanEndpoint === "stock/candle" || cleanEndpoint === "crypto/candle") {
+      const now = Math.floor(Date.now() / 1000)
+      const from = now - 30 * 24 * 60 * 60 
+
+      return {
+        symbol,
+        resolution: "D",
+        from,
+        to: now,
+      }
+    }
+    if (cleanEndpoint === "company-news") {
+      const to = new Date()
+      const fromDate = new Date()
+      fromDate.setDate(to.getDate() - 30)
+      const fmt = (d: Date) => d.toISOString().slice(0, 10)
+
+      return {
+        symbol,
+        from: fmt(fromDate),
+        to: fmt(to),
+      }
+    }
+
+    return symbol ? { symbol } : {}
+  }
+
+  return symbol ? { symbol } : {}
+}
 
 export function AddWidgetDialog({ open, onOpenChange }: Props) {
-  const [name, setName] = useState("")
   const [type, setType] = useState<WidgetType>("card")
   const [provider, setProvider] = useState<ProviderId>("alphaVantage")
-  const [endpoint, setEndpoint] = useState("TIME_SERIES_DAILY")
+
+  const [name, setName] = useState("")
+  const [endpoint, setEndpoint] = useState<string>(
+    getDefaultEndpoint("alphaVantage", "card"),
+  )
   const [symbol, setSymbol] = useState("AAPL")
   const [refreshMs, setRefreshMs] = useState(60_000)
   const [preview, setPreview] = useState<any>(null)
-  const [paths, setPaths] = useState<string[]>([]) // selected fields
+  const [paths, setPaths] = useState<string[]>([])
   const [chartX, setChartX] = useState<string>("time")
   const [chartY, setChartY] = useState<string>("close")
   const [format, setFormat] = useState<FieldFormat>("number")
@@ -31,15 +81,26 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
 
   const addWidget = useDashboardStore((s) => s.addWidget)
 
+  function handleProviderChange(v: ProviderId) {
+    setProvider(v)
+    setEndpoint(getDefaultEndpoint(v, type))
+  }
+
+  function handleTypeChange(v: WidgetType) {
+    setType(v)
+    setEndpoint(getDefaultEndpoint(provider, v))
+  }
+
   async function doPreview() {
     setError(null)
     setIsLoading(true)
     setPreview(null)
     try {
+      const params = buildParams(provider, endpoint, symbol)
       const body = {
         provider,
         endpoint,
-        params: { symbol },
+        params,
         intent: "preview",
       }
       const res = await fetch("/api/proxy", {
@@ -47,7 +108,7 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       })
-      const json = await res.json()
+      const json = await res.json().catch(() => ({}))
       if (!res.ok) {
         setError(typeof json?.error === "string" ? json.error : "Fetch failed")
       } else {
@@ -61,14 +122,17 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
   }
 
   function onAdd() {
+    const params = buildParams(provider, endpoint, symbol)
+
     const common = {
       title: name || `${symbol} ${type}`,
       name: name || `${symbol} ${type}`,
       provider,
       endpoint,
-      params: { symbol },
+      params,
       refreshMs,
     }
+
     if (type === "card") {
       addWidget({
         type,
@@ -88,6 +152,7 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
         mapping: { x: chartX, y: chartY },
       } as any)
     }
+
     onOpenChange(false)
     setPreview(null)
     setPaths([])
@@ -105,11 +170,18 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Widget Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. AAPL Daily Close" />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. AAPL Daily Close"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Type</Label>
-              <Select value={type} onValueChange={(v) => setType(v as WidgetType)}>
+              <Select
+                value={type}
+                onValueChange={(v) => handleTypeChange(v as WidgetType)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
@@ -125,7 +197,10 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label>Provider</Label>
-              <Select value={provider} onValueChange={(v) => setProvider(v as ProviderId)}>
+              <Select
+                value={provider}
+                onValueChange={(v) => handleProviderChange(v as ProviderId)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Provider" />
                 </SelectTrigger>
@@ -137,12 +212,32 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label>Endpoint</Label>
-              <Input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="TIME_SERIES_DAILY" />
-              <p className="text-xs text-muted-foreground">Use provider-specific function or path.</p>
+              <Input
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                placeholder={
+                  provider === "alphaVantage"
+                    ? "TIME_SERIES_DAILY"
+                    : type === "line" || type === "table"
+                      ? "stock/candle"
+                      : "quote"
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Use provider-specific function or path (e.g.
+                &nbsp;
+                <code className="font-mono">TIME_SERIES_DAILY</code> or
+                &nbsp;
+                <code className="font-mono">stock/candle</code>).
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Symbol</Label>
-              <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="AAPL" />
+              <Input
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                placeholder="AAPL"
+              />
             </div>
           </div>
 
@@ -153,13 +248,18 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
                 type="number"
                 min={0}
                 value={refreshMs}
-                onChange={(e) => setRefreshMs(Number.parseInt(e.target.value || "0", 10))}
+                onChange={(e) =>
+                  setRefreshMs(Number.parseInt(e.target.value || "0", 10))
+                }
               />
             </div>
             {type === "card" && (
               <div className="space-y-1.5">
                 <Label>Format</Label>
-                <Select value={format} onValueChange={(v) => setFormat(v as FieldFormat)}>
+                <Select
+                  value={format}
+                  onValueChange={(v) => setFormat(v as FieldFormat)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Format" />
                   </SelectTrigger>
@@ -178,7 +278,8 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
               {isLoading ? "Testing…" : "Test Fetch"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              Keys are read on the server in <code className="font-mono">/api/proxy</code>. Configure{" "}
+              Keys are read on the server in{" "}
+              <code className="font-mono">/api/proxy</code>. Configure{" "}
               <span className="font-mono">ALPHA_VANTAGE_API_KEY</span> /{" "}
               <span className="font-mono">FINNHUB_API_KEY</span>.
             </p>
@@ -196,11 +297,15 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
                 {preview ? (
                   <JSONExplorer
                     data={preview}
-                    onPickPath={(p) => setPaths((prev) => Array.from(new Set([...prev, p])))}
+                    onPickPath={(p) =>
+                      setPaths((prev) => Array.from(new Set([...prev, p])))
+                    }
                   />
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {isLoading ? "Loading preview…" : 'Click "Test Fetch" to preview API response.'}
+                    {isLoading
+                      ? "Loading preview…"
+                      : 'Click "Test Fetch" to preview API response.'}
                   </p>
                 )}
               </div>
@@ -210,11 +315,19 @@ export function AddWidgetDialog({ open, onOpenChange }: Props) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs">X (time) path</Label>
-                    <Input value={chartX} onChange={(e) => setChartX(e.target.value)} placeholder="time" />
+                    <Input
+                      value={chartX}
+                      onChange={(e) => setChartX(e.target.value)}
+                      placeholder="time"
+                    />
                   </div>
                   <div>
                     <Label className="text-xs">Y (value) path</Label>
-                    <Input value={chartY} onChange={(e) => setChartY(e.target.value)} placeholder="close" />
+                    <Input
+                      value={chartY}
+                      onChange={(e) => setChartY(e.target.value)}
+                      placeholder="close"
+                    />
                   </div>
                 </div>
               ) : (
