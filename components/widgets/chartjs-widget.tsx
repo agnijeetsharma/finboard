@@ -61,7 +61,7 @@ export default function ChartJsWidget({
   const rows: any[] = Array.isArray(data?.rows) ? data.rows : Array.isArray(data) ? data : []
   const labels = rows.map((r) => String(r?.[xField] ?? ""))
 
-  const palette = colors && colors.length ? colors : ["#0284c7", "#38bdf8", "#7c3f00", "#0ea5e9"] // sky and brown
+  const palette = colors && colors.length ? colors : ["#0284c7", "#38bdf8", "#7c3f00", "#0ea5e9"] 
 
   const datasets = yFields.map((k, i) => ({
     label: k,
