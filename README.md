@@ -6,7 +6,7 @@
 
 FinBoard is a customizable finance dashboard that allows users to build real-time monitoring interfaces by connecting to financial APIs. It showcases advanced React patterns, secure API handling, and professional UI/UX design.
 
-**Live Demo**: [Deploy on Vercel]
+**Live Demo**: [Deploy on Vercel](https://finboard-nu.vercel.app/)
 
 ## ✨ Key Features & Technical Highlights
 
